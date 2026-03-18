@@ -158,16 +158,19 @@ export function VitalSignsPanel() {
             {/* Desglose de células */}
             <div className="grid grid-cols-4 gap-1 mt-2">
               {[
-                { key: "erythrocyte", label: "🔴 GR", color: "text-red-400" },
-                { key: "leukocyte", label: "⚪ GL", color: "text-slate-300" },
-                { key: "platelet", label: "🟡 Plt", color: "text-yellow-400" },
-                { key: "hormone", label: "🟣 Hor", color: "text-purple-400" },
-              ].map(({ key, label, color }) => (
-                <div key={key} className="bg-muted/20 rounded p-1 text-center">
-                  <div className={`text-[9px] font-mono font-bold ${color}`}>
+                { key: "erythrocyte", label: "GR", emoji: "🔴", color: "text-red-400" },
+                { key: "leukocyte", label: "GL", emoji: "⚪", color: "text-slate-300" },
+                { key: "platelet", label: "Plt", emoji: "🟡", color: "text-yellow-400" },
+                { key: "hormone", label: "Hor", emoji: "🟣", color: "text-purple-400" },
+              ].map(({ key, label, emoji, color }) => (
+                <div key={key} className="bg-muted/20 rounded p-1 text-center min-w-0">
+                  <div className={`text-[9px] font-mono font-bold ${color} truncate`}>
                     {circ.packetTypeBreakdown?.[key] ?? 0}
                   </div>
-                  <div className="text-[8px] text-muted-foreground">{label}</div>
+                  <div className="text-[8px] text-muted-foreground leading-tight">
+                    <span>{emoji}</span>
+                    <span className="block font-mono">{label}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -175,12 +178,10 @@ export function VitalSignsPanel() {
             {/* Salud vascular */}
             <div className="border-t border-border/30 pt-1.5 mt-1">
               <div className="text-[8px] text-muted-foreground uppercase mb-1">Salud Vascular</div>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
-                <StatRow label="Arterias" value={`${(circ.vesselHealth.arterialFlow * 100).toFixed(0)}%`}
-                  bar={circ.vesselHealth.arterialFlow} color="text-red-300" />
-                <StatRow label="Capilares" value={`${(circ.vesselHealth.capillaryDensity * 100).toFixed(0)}%`}
-                  bar={circ.vesselHealth.capillaryDensity} color="text-blue-400" />
-              </div>
+              <StatRow label="Arterias" value={`${(circ.vesselHealth.arterialFlow * 100).toFixed(0)}%`}
+                bar={circ.vesselHealth.arterialFlow} color="text-red-300" />
+              <StatRow label="Capilares" value={`${(circ.vesselHealth.capillaryDensity * 100).toFixed(0)}%`}
+                bar={circ.vesselHealth.capillaryDensity} color="text-blue-400" />
               <StatRow label="Placa arterial" value={`${(circ.vesselHealth.plaqueIndex * 100).toFixed(1)}%`}
                 bar={circ.vesselHealth.plaqueIndex} color="text-orange-400" />
             </div>
