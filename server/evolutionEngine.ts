@@ -42,11 +42,27 @@ import {
 import {
   breathe, analyzeMarketAirQuality, getRespiratorySystemStats, getAgentRespiratoryProfile
 } from "./respiratorySystem.js";
+import {
+  ingestEpisode, consolidateMemory, applyEWCProtection, inheritEpisodes,
+  clearAgentMemory, recallRelevantEpisodes, computeEpisodicIncentive, getDigestiveStats, getAgentMemory
+} from "./digestiveSystem.js";
+import {
+  sampleThermalState, computeEnergyBudget, selectAgentsForTick,
+  recordTickDuration, getTegumentaryStats, getCurrentSnapshot
+} from "./tegumentarySystem.js";
+import {
+  computeMultiObjectiveFitness, computeParetoRanks, assignNiches,
+  computeSharedFitness, selectMate, selectCrossoverType, performCrossover,
+  computeAdaptiveMutationRate, getReproductiveStats, phenotype
+} from "./reproductiveSystem.js";
 
 // Exportar stats de los sistemas fisiológicos
 export { getTrainingStats, getRecentSessions };
 export { getCirculatoryStats, getCirculatoryState };
 export { getRespiratorySystemStats, getAgentRespiratoryProfile };
+export { getDigestiveStats, getAgentMemory };
+export { getTegumentaryStats, getCurrentSnapshot };
+export { getReproductiveStats };
 
 // ─── Constantes del sistema nervioso ─────────────────────────────────────────
 const CFC_HIDDEN = 24;       // Neuronas CfC por agente (compacto pero expresivo)
@@ -730,6 +746,7 @@ export function spawnInitialPopulation(count = 12) {
 
 // ─── Run trading tick ─────────────────────────────────────────────────────────
 export async function runTick() {
+  const tickStartMs = Date.now();
   const { price, volume, change24h } = await fetchOrSimulatePrice();
   priceHistory.push(price);
   if (priceHistory.length > 200) priceHistory = priceHistory.slice(-200);
@@ -745,10 +762,29 @@ export async function runTick() {
   const mktVar = mktReturns.reduce((a, b) => a + (b - mktMean) ** 2, 0) / (mktReturns.length || 1);
   const marketVolatility = Math.sqrt(mktVar) * 100; // en % de std
 
-  const agents = storage.getAliveAgents();
+  const allAgents = storage.getAliveAgents();
+
+  // ── SISTEMA TEGUMENTARIO: muestra térmica + presupuesto de energía ─────────
+  const thermalSnapshot = sampleThermalState(allAgents.length);
+  const eliteCount = Math.max(1, Math.floor(allAgents.length * 0.25));
+  const energyBudget = computeEnergyBudget(thermalSnapshot, allAgents.length, eliteCount);
+  const { selected: agents, skipped: skippedAgents } = selectAgentsForTick(allAgents, energyBudget);
 
   for (const agent of agents) {
-    const { signal, attentionWeights, timeConstants } = computeSignalV2(agent, priceHistory, marketVolatility);
+    // ── SISTEMA DIGESTIVO: recall episódico (modula la señal CfC) ────────────
+    const currentMarketState = {
+      price, volatility: marketVolatility / 100,
+      trend: mktReturns.length > 0 ? mktReturns[mktReturns.length - 1] * 10 : 0,
+      regime: "eupnea", volume
+    };
+    const relevantMemories = recallRelevantEpisodes(agent.id, currentMarketState, 5);
+    const episodicBonus = relevantMemories.length > 0
+      ? computeEpisodicIncentive(agent.id, currentMarketState, 0)
+      : 0;
+
+    const { signal: rawSignal, attentionWeights, timeConstants } = computeSignalV2(agent, priceHistory, marketVolatility);
+    // Módulo señal CfC + bonus episódico (el pasado informa el presente)
+    const signal = rawSignal + episodicBonus * 0.3;
 
     let { capital, openPosition, openPositionPrice } = agent;
     let pnl = agent.pnl;
@@ -815,6 +851,13 @@ export async function runTick() {
           message: `${agent.name} cierra ${openPosition.toUpperCase()} @ $${price.toFixed(0)} | PnL: ${tradePnlAmount >= 0 ? "+" : ""}$${tradePnlAmount.toFixed(2)}`,
           data: { tradePnl: tradePnlAmount, strategy: agent.strategy },
         });
+
+        // ── DIGESTIVO: ingerir episodio con el resultado real del trade ───
+        ingestEpisode(agent.id, {
+          price, volatility: marketVolatility / 100,
+          trend: mktReturns.length > 0 ? mktReturns[mktReturns.length - 1] * 10 : 0,
+          regime: "eupnea", volume,
+        }, openPosition === "long" ? "sell" : "buy", signal, tradePnl);
 
         openPosition = null;
         openPositionPrice = null;
@@ -956,19 +999,60 @@ export async function runTick() {
           chemistryWeight: newChem,
           fitnessScore: Math.min(2, agent.fitnessScore + fitnessBoost),
         });
+        // ── DIGESTIVO: protección EWC tras plasticidad hebbiana ──────────
+        applyEWCProtection(agent.id, brain);
         saveBrain(agent.id, brain);
       }
     }
   }
 
+  // ── DIGESTIVO: consolidar memoria cada 20 ticks ───────────────────────────
+  const tickCount2 = storage.getRecentTicks(1000).length;
+  if (tickCount2 > 0 && tickCount2 % 20 === 0) {
+    for (const ag of allAgents) {
+      consolidateMemory(ag.id, getBrain(ag));
+    }
+  }
+
+  // ── REPRODUCTIVO: fitness multi-objetivo cada tick ───────────────────────
+  for (const ag of allAgents) {
+    const outcomes = storage.getTradesByAgent(ag.id)
+      .filter(t => t.pnl !== 0).slice(-20).map(t => t.pnl / (ag.capital * ag.positionSizing || 1));
+    computeMultiObjectiveFitness({
+      id: ag.id,
+      fitnessScore: ag.fitnessScore,
+      sharpeRatio: ag.sharpeRatio,
+      winRate: ag.winRate,
+      pnlPercent: ag.pnlPercent,
+      mathWeight: ag.mathWeight,
+      physicsWeight: ag.physicsWeight,
+      chemistryWeight: ag.chemistryWeight,
+      entryThreshold: ag.entryThreshold,
+      exitThreshold: ag.exitThreshold,
+      positionSizing: ag.positionSizing,
+      momentumBias: ag.momentumBias,
+      totalTrades: ag.totalTrades,
+      generation: ag.generation,
+    }, outcomes);
+  }
+
   // Actualizar topología dinámica cada 15 ticks
   if (tickCount > 0 && tickCount % 15 === 0) {
-    buildDynamicGraph();
+    if (!energyBudget.skipGATRebuild) {
+      buildDynamicGraph();
+    }
+    // ── REPRODUCTIVO: niching adaptativo cada 15 ticks ──────────────────────
+    assignNiches(allAgents);
+    // Recalcular Pareto ranks después del niching
+    computeParetoRanks(allAgents.map(a => a.id));
   }
 
   if (tickCount > 0 && tickCount % 30 === 0) {
     runSelectionCycle();
   }
+
+  // ── TEGUMENTARIO: registrar duración del tick ────────────────────────────
+  recordTickDuration(Date.now() - tickStartMs);
 }
 
 // ─── Kill agent ───────────────────────────────────────────────────────────────
@@ -984,6 +1068,8 @@ function killAgent(agentId: string, reason: string) {
   });
   // Eliminar cerebro de la memoria
   agentBrains.delete(agentId);
+  // ── DIGESTIVO: limpiar memoria del agente muerto (con delay para herencia) ─
+  clearAgentMemory(agentId, 5000);
 
   // SISTEMA CIRCULATORIO: retorno venoso — capital reciclado a los vivos
   const aliveForVein = storage.getAliveAgents();
@@ -1079,19 +1165,30 @@ function runSelectionCycle() {
 
 // ─── Reproduce offspring ──────────────────────────────────────────────────────
 function spawnOffspring(parent1: Agent, parent2: Agent, generation: number, index: number) {
-  const mutation = 0.1;
-  const mutate = (val: number, min: number, max: number) =>
-    clamp(val + rand(-mutation, mutation), min, max);
-  const crossover = (a: number, b: number) => Math.random() < 0.5 ? a : b;
+  // mutation rate now handled by computeAdaptiveMutationRate in reproductive system
 
-  let strategy = parent1.fitnessScore >= parent2.fitnessScore ? parent1.strategy : parent2.strategy;
-  if (Math.random() < 0.15) {
-    strategy = STRATEGIES[Math.floor(rand(0, STRATEGIES.length))];
-  }
+  // ── REPRODUCTIVO: selección de pareja con nichos + crossover especializado
+  const currentGen2 = generation;
+  const aliveForMate = storage.getAliveAgents();
+  const mate = selectMate(parent1, aliveForMate.filter(a => a.id !== parent1.id));
+  const actualParent2 = mate ?? parent2;
 
-  const mathW = mutate(crossover(parent1.mathWeight, parent2.mathWeight), 0.05, 0.9);
-  const physW = mutate(crossover(parent1.physicsWeight, parent2.physicsWeight), 0.05, 0.9 - mathW);
-  const chemW = 1 - mathW - physW;
+  const adaptMutRate = computeAdaptiveMutationRate(
+    0.5, // diversityIndex placeholder — actualizado en niching
+    0,
+    currentGen2
+  );
+  const crossoverType = selectCrossoverType(
+    parent1.fitnessScore, actualParent2.fitnessScore,
+    parent1.mathWeight, actualParent2.mathWeight,
+    currentGen2
+  );
+  const crossoverResult = performCrossover(parent1, actualParent2, crossoverType, adaptMutRate);
+
+  const mathW = clamp(crossoverResult.mathWeight, 0.05, 0.9);
+  const physW = clamp(crossoverResult.physicsWeight, 0.05, 0.9 - mathW);
+  const chemW = clamp(crossoverResult.chemistryWeight, 0.05, 0.9);
+  const strategy = crossoverResult.strategy;
 
   const id = generateId();
   const name = generateName(generation, index + Math.floor(Math.random() * 10));
@@ -1101,17 +1198,17 @@ function spawnOffspring(parent1: Agent, parent2: Agent, generation: number, inde
     name,
     generation,
     status: "alive",
-    parentIds: [parent1.id, parent2.id],
+    parentIds: [parent1.id, actualParent2.id],
     mathWeight: mathW,
     physicsWeight: physW,
     chemistryWeight: clamp(chemW, 0.05, 0.9),
-    riskTolerance: mutate(crossover(parent1.riskTolerance, parent2.riskTolerance), 0.05, 0.95),
-    lookbackPeriod: Math.floor(mutate(crossover(parent1.lookbackPeriod, parent2.lookbackPeriod), 3, 40)),
-    entryThreshold: mutate(crossover(parent1.entryThreshold, parent2.entryThreshold), 0.002, 0.1),
-    exitThreshold: mutate(crossover(parent1.exitThreshold, parent2.exitThreshold), 0.001, 0.08),
-    positionSizing: mutate(crossover(parent1.positionSizing, parent2.positionSizing), 0.03, 0.3),
-    momentumBias: mutate(crossover(parent1.momentumBias, parent2.momentumBias), -1, 1),
-    volatilityFilter: mutate(crossover(parent1.volatilityFilter, parent2.volatilityFilter), 0.1, 0.9),
+    riskTolerance: clamp(crossoverResult.riskTolerance, 0.05, 0.95),
+    lookbackPeriod: crossoverResult.lookbackPeriod,
+    entryThreshold: clamp(crossoverResult.entryThreshold, 0.002, 0.1),
+    exitThreshold: clamp(crossoverResult.exitThreshold, 0.001, 0.08),
+    positionSizing: clamp(crossoverResult.positionSizing, 0.03, 0.3),
+    momentumBias: clamp(crossoverResult.momentumBias, -1, 1),
+    volatilityFilter: clamp(crossoverResult.volatilityFilter, 0.1, 0.9),
     strategy,
     capital: 10000,
     initialCapital: 10000,
@@ -1121,8 +1218,14 @@ function spawnOffspring(parent1: Agent, parent2: Agent, generation: number, inde
   // Crossover de los cerebros CfC de los padres
   const brain1 = agentBrains.get(parent1.id) ?? initCfCBrain();
   const brain2 = agentBrains.get(parent2.id) ?? initCfCBrain();
-  const childBrain = crossoverBrains(brain1, brain2, mutation);
+  const childBrain = crossoverBrains(brain1, brain2, adaptMutRate);
   agentBrains.set(id, childBrain);
+
+  // ── DIGESTIVO: el hijo hereda los mejores episodios del padre ─────────────
+  inheritEpisodes(parent1.id, id, 0.3);
+  if (actualParent2.id !== parent1.id) {
+    inheritEpisodes(actualParent2.id, id, 0.15);
+  }
 
   storage.addEvent({
     type: "birth",

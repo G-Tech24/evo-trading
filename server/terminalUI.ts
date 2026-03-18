@@ -47,6 +47,18 @@ interface VitalsSnapshot {
   trainingPassRate: number;
   generalizationScore: number;
   dominantRegime: string;
+  // Digestive
+  memoryEpisodes?: number;
+  ewcProtection?: number;
+  memoryPressure?: number;
+  // Tegumentary
+  thermalRegime?: string;
+  cpuUsage?: number;
+  tickDurationMs?: number;
+  // Reproductive
+  niches?: number;
+  paretoFrontSize?: number;
+  diversityIndex?: number;
 }
 
 interface BrokerSnapshot {
@@ -284,13 +296,29 @@ function updateVitalsBox(data: DashboardData) {
   const v = data.vitals;
   const bpmColor = v.heartRate > 60 ? yellow : green;
 
+  // Thermal regime color
+  const thermalColor: Record<string, Function> = {
+    hypothermia: cyan, normothermic: green, febrile: yellow,
+    hyperpyrexia: red, critical: (s: string) => `{red-fg}{bold}${s}{/bold}{/red-fg}`,
+  };
+  const tColor = thermalColor[v.thermalRegime ?? "normothermic"] ?? dim;
+
   const lines = [
     `${cyan("♥")} ${dim("HR:")}   ${bpmColor(v.heartRate + " bpm")}  ${dim("BP:")} ${(v.bloodPressure * 100).toFixed(0)}%`,
     `${cyan("◎")} ${dim("O₂:")}   ${green((v.avgO2 * 100).toFixed(1) + "%")}  ${dim("CO₂:")} ${red((v.avgCo2 * 100).toFixed(1) + "%")}`,
-    `${cyan("~")} ${dim("Régimen:")} ${magenta(v.dominantRegime)}`,
+    `${cyan("~")} ${dim("Réspir:")} ${magenta(v.dominantRegime)}`,
     `${cyan("⚡")} ${dim("FitMod:")} ${green(v.avgFitnessModifier.toFixed(3))}`,
     `${cyan("🧠")} ${dim("Fase:")}   ${yellow(v.trainingPhase)}`,
     `${dim("Pass:")} ${(v.trainingPassRate * 100).toFixed(1)}%  ${dim("Gen:")} ${(v.generalizationScore * 100).toFixed(1)}%`,
+    `── TEGUMENTARIO ──────────────────────`,
+    `${cyan("🌡")} ${dim("Térmico:")} ${tColor(v.thermalRegime ?? "?")}  CPU:${((v.cpuUsage ?? 0) * 100).toFixed(0)}%`,
+    `${cyan("⏱")} ${dim("Tick:")}    ${(v.tickDurationMs ?? 0)}ms`,
+    `── DIGESTIVO ────────────────────────`,
+    `${cyan("💾")} ${dim("Mem:")}   ${bold(String(v.memoryEpisodes ?? 0))} eps  EWC:${((v.ewcProtection ?? 0) * 100).toFixed(1)}%`,
+    `${dim("Presión:")} ${(v.memoryPressure ?? 0) > 0.8 ? red : green}(${((v.memoryPressure ?? 0) * 100).toFixed(0) + "%"})`,
+    `── REPRODUCTIVO ─────────────────────`,
+    `${cyan("👑")} ${dim("Nichos:")} ${bold(String(v.niches ?? 0))}  Pareto:${bold(String(v.paretoFrontSize ?? 0))}`,
+    `${cyan("🧶")} ${dim("Diversidad:")} ${((v.diversityIndex ?? 0) * 100).toFixed(1)}%`,
   ];
   widgets.vitalsBox.setContent(lines.join("\n"));
 }

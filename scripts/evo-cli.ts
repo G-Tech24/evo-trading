@@ -51,6 +51,15 @@ import {
   getTrainingStats,
 } from "../server/trainingEngine.js";
 import {
+  getDigestiveStats,
+} from "../server/digestiveSystem.js";
+import {
+  getTegumentaryStats,
+} from "../server/tegumentarySystem.js";
+import {
+  getReproductiveStats,
+} from "../server/reproductiveSystem.js";
+import {
   initTerminalUI,
   updateDashboard,
   logEvent,
@@ -297,6 +306,18 @@ async function refreshDashboard() {
       trainingPassRate: training?.averagePassRate ?? 0,
       generalizationScore: training?.averageGeneralizationScore ?? 0,
       dominantRegime,
+      // Digestive
+      memoryEpisodes: (() => { try { const d = getDigestiveStats(); return d.totalEpisodes; } catch { return 0; } })(),
+      ewcProtection: (() => { try { const d = getDigestiveStats(); return d.ewcOmegaAvg; } catch { return 0; } })(),
+      memoryPressure: (() => { try { const d = getDigestiveStats(); return d.memoryPressure; } catch { return 0; } })(),
+      // Tegumentary
+      thermalRegime: (() => { try { return getTegumentaryStats().currentRegime; } catch { return "normothermic"; } })(),
+      cpuUsage: (() => { try { return getTegumentaryStats().cpuUsage; } catch { return 0; } })(),
+      tickDurationMs: (() => { try { return getTegumentaryStats().avgTickDurationMs; } catch { return 0; } })(),
+      // Reproductive
+      niches: (() => { try { return getReproductiveStats(agents).totalNiches; } catch { return 0; } })(),
+      paretoFrontSize: (() => { try { return getReproductiveStats(agents).paretoFrontSize; } catch { return 0; } })(),
+      diversityIndex: (() => { try { return getReproductiveStats(agents).diversityIndex; } catch { return 0; } })(),
     },
     broker: {
       connected: brokerSt.connected,

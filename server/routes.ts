@@ -6,7 +6,10 @@ import {
   startSimulation, stopSimulation, isRunning, spawnInitialPopulation, buildGraph,
   getTrainingStats, getRecentSessions,
   getCirculatoryStats, getCirculatoryState,
-  getRespiratorySystemStats, getAgentRespiratoryProfile
+  getRespiratorySystemStats, getAgentRespiratoryProfile,
+  getDigestiveStats, getAgentMemory,
+  getTegumentaryStats, getCurrentSnapshot,
+  getReproductiveStats
 } from "./evolutionEngine.js";
 import { ALL_CONCEPTS, CONCEPT_INDEX, CURRICULUM_STATS, selectRelevantConcepts } from "./knowledgeBase.js";
 import { ALL_PROBLEMS, PROBLEM_BANK_STATS, selectProblemsForAgent, computeWisdomVector } from "./problemBank.js";
@@ -296,6 +299,47 @@ export function registerRoutes(httpServer: Server, app: Express) {
     const profile = getAgentRespiratoryProfile(req.params.id);
     if (!profile) return res.status(404).json({ error: "Perfil no encontrado" });
     res.json(profile);
+  });
+
+  // ── DIGESTIVE SYSTEM API ────────────────────────────────────────────────────────────
+
+  // GET estado global del sistema digestivo (memoria episódica)
+  app.get("/api/digestive/stats", (_req, res) => {
+    res.json(getDigestiveStats());
+  });
+
+  // GET memoria episódica de un agente específico (STM + LTM)
+  app.get("/api/digestive/agent/:id", (req, res) => {
+    const mem = getAgentMemory(req.params.id);
+    res.json({
+      stm: mem.stm.slice(-20),  // últimos 20 episodios STM
+      ltm: mem.ltm,             // toda la LTM (máx 50)
+      stmCount: mem.stm.length,
+      ltmCount: mem.ltm.length,
+    });
+  });
+
+  // ── TEGUMENTARY SYSTEM API ─────────────────────────────────────────────────────
+
+  // GET estado térmico y uso de recursos
+  app.get("/api/tegumentary/stats", (_req, res) => {
+    const stats = getTegumentaryStats();
+    const snap  = getCurrentSnapshot();
+    res.json({ ...stats, snapshot: snap });
+  });
+
+  // ── REPRODUCTIVE SYSTEM API ─────────────────────────────────────────────────────
+
+  // GET stats del sistema reproductivo (diversidad, Pareto, nichos)
+  app.get("/api/reproductive/stats", (_req, res) => {
+    const agents = storage.getAliveAgents();
+    res.json(getReproductiveStats(agents));
+  });
+
+  // GET nichos actuales de la población
+  app.get("/api/reproductive/niches", (_req, res) => {
+    // importamos directamente del módulo (ya exportado via evolutionEngine)
+    res.json({ message: "Nichos disponibles via /api/reproductive/stats" });
   });
 
   // Auto-start simulation on boot
