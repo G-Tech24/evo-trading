@@ -777,9 +777,16 @@ export async function runTick() {
       trend: mktReturns.length > 0 ? mktReturns[mktReturns.length - 1] * 10 : 0,
       regime: "eupnea", volume
     };
-    const relevantMemories = recallRelevantEpisodes(agent.id, currentMarketState, 5);
+    // Build a simple numeric embedding from marketState for episodic recall
+    const marketEmbedding = [
+      Math.tanh(currentMarketState.price / 100000),
+      Math.tanh(currentMarketState.volatility * 10),
+      Math.tanh(currentMarketState.trend),
+      Math.tanh(currentMarketState.volume / 1e9),
+    ];
+    const relevantMemories = recallRelevantEpisodes(agent.id, marketEmbedding, 5);
     const episodicBonus = relevantMemories.length > 0
-      ? computeEpisodicIncentive(agent.id, currentMarketState, 0)
+      ? computeEpisodicIncentive(agent.id, marketEmbedding, 0)
       : 0;
 
     const { signal: rawSignal, attentionWeights, timeConstants } = computeSignalV2(agent, priceHistory, marketVolatility);
@@ -1000,7 +1007,8 @@ export async function runTick() {
           fitnessScore: Math.min(2, agent.fitnessScore + fitnessBoost),
         });
         // ── DIGESTIVO: protección EWC tras plasticidad hebbiana ──────────
-        applyEWCProtection(agent.id, brain);
+        // applyEWCProtection returns a new W_f matrix with protected weights
+        brain.W_f = applyEWCProtection(agent.id, brain.W_f);
         saveBrain(agent.id, brain);
       }
     }
@@ -1010,7 +1018,8 @@ export async function runTick() {
   const tickCount2 = storage.getRecentTicks(1000).length;
   if (tickCount2 > 0 && tickCount2 % 20 === 0) {
     for (const ag of allAgents) {
-      consolidateMemory(ag.id, getBrain(ag));
+      const agBrain = getBrain(ag);
+      consolidateMemory(ag.id, agBrain.W_f, agBrain.W_tau);
     }
   }
 
