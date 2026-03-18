@@ -1,13 +1,16 @@
 import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { useEvolution } from "@/lib/useEvolution";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Activity, Cpu, TrendingUp, TrendingDown, Skull, Baby,
-  Dna, Network, Zap, BarChart2, Clock, Radio
+  Dna, Network, Zap, BarChart2, Clock, Radio,
+  GraduationCap, BookOpen, Calculator, Atom, FlaskConical
 } from "lucide-react";
 import type { Agent, MarketTick, Event } from "@shared/schema";
 import { AgentGraph } from "@/components/AgentGraph";
@@ -148,6 +151,9 @@ export default function Dashboard() {
                 <TabsTrigger value="dead" className="text-xs" data-testid="tab-dead">
                   <Skull className="w-3 h-3 mr-1"/> Extintos ({dead.length})
                 </TabsTrigger>
+                <TabsTrigger value="curriculum" className="text-xs" data-testid="tab-curriculum">
+                  <GraduationCap className="w-3 h-3 mr-1"/> Currículo
+                </TabsTrigger>
               </TabsList>
 
               <div className="flex-1 overflow-hidden mt-2">
@@ -178,6 +184,10 @@ export default function Dashboard() {
                       <DeadAgentRow key={agent.id} agent={agent} />
                     ))}
                   </div>
+                </TabsContent>
+
+                <TabsContent value="curriculum" className="h-full m-0 px-3 pb-3 overflow-auto">
+                  <CurriculumPanel />
                 </TabsContent>
               </div>
             </Tabs>
@@ -270,6 +280,172 @@ function DeadAgentRow({ agent }: { agent: Agent }) {
         <span className="text-[10px] font-mono text-loss">{agent.pnlPercent.toFixed(1)}% PnL</span>
         <span className="text-[10px] text-muted-foreground">{agent.totalTrades} trades</span>
       </div>
+    </div>
+  );
+}
+
+// ── CURRICULUM PANEL ──────────────────────────────────────────────────────────
+interface CurriculumLevel {
+  level: number;
+  label: string;
+  concepts: Array<{
+    id: string; name: string; domain: string;
+    formula: string; insight: string; tradingAnalogy: string;
+  }>;
+}
+interface CurriculumResponse {
+  stats: { totalConcepts: number; domains: Record<string, number>; levels: Record<string, number> };
+  levels: CurriculumLevel[];
+}
+
+const DOMAIN_COLOR: Record<string, string> = {
+  math: "text-blue-400",
+  physics: "text-purple-400",
+  chemistry: "text-yellow-400",
+};
+const DOMAIN_BG: Record<string, string> = {
+  math: "bg-blue-500/10 border-blue-500/20",
+  physics: "bg-purple-500/10 border-purple-500/20",
+  chemistry: "bg-yellow-500/10 border-yellow-500/20",
+};
+const DOMAIN_ICON: Record<string, React.ReactNode> = {
+  math: <Calculator className="w-3 h-3" />,
+  physics: <Atom className="w-3 h-3" />,
+  chemistry: <FlaskConical className="w-3 h-3" />,
+};
+const LEVEL_COLORS = [
+  "border-slate-500/30",
+  "border-green-600/30",
+  "border-emerald-500/30",
+  "border-cyan-500/30",
+  "border-blue-500/30",
+  "border-violet-500/30",
+  "border-purple-500/40",
+];
+
+function CurriculumPanel() {
+  const [activeLevel, setActiveLevel] = useState<number | null>(null);
+  const [activeDomain, setActiveDomain] = useState<string | null>(null);
+
+  const { data: curriculum, isLoading } = useQuery<CurriculumResponse>({
+    queryKey: ["/api/curriculum"],
+    queryFn: () => apiRequest("GET", "/api/curriculum").then(r => r.json()),
+    staleTime: 60_000,
+  });
+
+  if (isLoading || !curriculum) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <div className="text-muted-foreground text-xs font-mono animate-pulse">Cargando currículo...</div>
+      </div>
+    );
+  }
+
+  const filteredLevels = curriculum.levels.map(lvl => ({
+    ...lvl,
+    concepts: lvl.concepts.filter(c =>
+      (!activeLevel || lvl.level === activeLevel) &&
+      (!activeDomain || c.domain === activeDomain)
+    )
+  })).filter(lvl => !activeLevel || lvl.level === activeLevel);
+
+  const totalMath = curriculum.stats.domains["math"] ?? 0;
+  const totalPhys = curriculum.stats.domains["physics"] ?? 0;
+  const totalChem = curriculum.stats.domains["chemistry"] ?? 0;
+  const total = curriculum.stats.totalConcepts;
+
+  return (
+    <div className="space-y-4">
+      {/* Header stats */}
+      <div className="grid grid-cols-4 gap-2">
+        <div className="terminal-border p-2 text-center">
+          <div className="text-lg font-mono font-bold text-foreground">{total}</div>
+          <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Conceptos Totales</div>
+        </div>
+        <div className="terminal-border p-2 text-center border-blue-500/30">
+          <div className="text-lg font-mono font-bold text-blue-400">{totalMath}</div>
+          <div className="text-[9px] text-blue-400/70 uppercase tracking-wider flex items-center justify-center gap-1">
+            <Calculator className="w-2.5 h-2.5"/> Matemáticas
+          </div>
+        </div>
+        <div className="terminal-border p-2 text-center border-purple-500/30">
+          <div className="text-lg font-mono font-bold text-purple-400">{totalPhys}</div>
+          <div className="text-[9px] text-purple-400/70 uppercase tracking-wider flex items-center justify-center gap-1">
+            <Atom className="w-2.5 h-2.5"/> Física
+          </div>
+        </div>
+        <div className="terminal-border p-2 text-center border-yellow-500/30">
+          <div className="text-lg font-mono font-bold text-yellow-400">{totalChem}</div>
+          <div className="text-[9px] text-yellow-400/70 uppercase tracking-wider flex items-center justify-center gap-1">
+            <FlaskConical className="w-2.5 h-2.5"/> Química
+          </div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[9px] text-muted-foreground uppercase">Nivel:</span>
+        {[null, 1, 2, 3, 4, 5, 6, 7].map(lvl => (
+          <button
+            key={lvl ?? "all"}
+            onClick={() => setActiveLevel(lvl)}
+            className={`text-[9px] font-mono px-2 py-0.5 rounded border transition-colors ${
+              activeLevel === lvl
+                ? "bg-primary/20 border-primary text-primary"
+                : "border-border text-muted-foreground hover:border-muted-foreground"
+            }`}
+          >
+            {lvl === null ? "Todos" : `L${lvl}`}
+          </button>
+        ))}
+        <span className="text-[9px] text-muted-foreground uppercase ml-2">Dom:</span>
+        {([null, "math", "physics", "chemistry"] as const).map(dom => (
+          <button
+            key={dom ?? "all"}
+            onClick={() => setActiveDomain(dom)}
+            className={`text-[9px] font-mono px-2 py-0.5 rounded border transition-colors flex items-center gap-0.5 ${
+              activeDomain === dom
+                ? `${dom ? DOMAIN_COLOR[dom] : "text-primary"} bg-muted/30 border-current`
+                : "border-border text-muted-foreground hover:border-muted-foreground"
+            }`}
+          >
+            {dom ? DOMAIN_ICON[dom] : null}
+            {dom === null ? "Todos" : dom === "math" ? "Mat" : dom === "physics" ? "Fís" : "Quím"}
+          </button>
+        ))}
+      </div>
+
+      {/* Levels */}
+      {filteredLevels.map(lvl => (
+        <div key={lvl.level} className={`terminal-border rounded p-3 ${LEVEL_COLORS[lvl.level - 1]}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <GraduationCap className="w-3.5 h-3.5 text-muted-foreground"/>
+            <span className="text-xs font-semibold font-mono uppercase tracking-wider">
+              L{lvl.level} — {lvl.label}
+            </span>
+            <span className="text-[9px] text-muted-foreground">({lvl.concepts.length} conceptos)</span>
+          </div>
+          {lvl.concepts.length === 0 ? (
+            <div className="text-[9px] text-muted-foreground font-mono">Sin conceptos para este filtro</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+              {lvl.concepts.map(c => (
+                <div key={c.id} className={`rounded border p-2 text-[10px] font-mono ${DOMAIN_BG[c.domain]}`}>
+                  <div className={`font-semibold ${DOMAIN_COLOR[c.domain]} flex items-center gap-1 mb-0.5`}>
+                    {DOMAIN_ICON[c.domain]} {c.name}
+                  </div>
+                  {c.formula && (
+                    <div className="text-foreground/60 italic text-[9px] truncate mb-0.5">{c.formula}</div>
+                  )}
+                  <div className="text-muted-foreground text-[9px] leading-tight line-clamp-2">
+                    {c.tradingAnalogy}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
