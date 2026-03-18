@@ -886,7 +886,12 @@ export async function runTick() {
       : 0.001;
     const sharpeRatio = returnStd > 0 ? (avgReturn / returnStd) * Math.sqrt(252) : 0;
 
-    const fitnessScore = sharpeRatio * 0.5 + winRate * 0.3 + clamp(pnlPercent / 50, -1, 2) * 0.2;
+    // Clamp everything to prevent overflow when returnStd is near zero
+    const safeSharpe = clamp(sharpeRatio, -5, 5);
+    const fitnessScore = clamp(
+      safeSharpe * 0.5 + winRate * 0.3 + clamp(pnlPercent / 50, -1, 2) * 0.2,
+      -5, 5  // hard clamp — prevents -486M overflow from bad Sharpe
+    );
 
     storage.updateAgent(agent.id, {
       capital,
@@ -897,7 +902,7 @@ export async function runTick() {
       totalTrades,
       openPosition: openPosition ?? null,
       openPositionPrice: openPositionPrice ?? null,
-      sharpeRatio: clamp(sharpeRatio, -5, 5),
+      sharpeRatio: safeSharpe,
       fitnessScore,
     });
 

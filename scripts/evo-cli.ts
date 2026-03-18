@@ -209,7 +209,9 @@ function hookAlpacaOrders() {
    * Capital real invertido = (capital del agente / 10000) * MAX_NOTIONAL
    * Se escala linealmente para que agentes con más capital inviertan más.
    */
-  const lastSeen = new Map<string, number>(); // agentId → último tradeId procesado
+  const lastSeen = new Map<string, number>();
+  const lastOrderTime = new Map<string, number>(); // cooldown anti-spam
+  const ORDER_COOLDOWN_MS = 10000; // mínimo 10s entre órdenes por agente // agentId → último tradeId procesado
 
   setInterval(async () => {
     const agents = storage.getAliveAgents();
@@ -234,9 +236,17 @@ function hookAlpacaOrders() {
         Math.min(MAX_NOTIONAL, capitalRatio * MAX_NOTIONAL * agent.positionSizing * 2)
       );
 
-      // Solo ejecutamos órdenes para agentes en el cuartil superior (fitness > 0.3)
-      // para no desperdiciar capital en agentes débiles.
-      if (agent.fitnessScore < 0.3 && latestTrade.pnl === 0) continue;
+      // Solo ejecutamos órdenes para agentes con fitness sólido (> 0.5)
+      // y que hayan completado al menos 3 trades para tener señal real.
+      // Previene spam de órdenes de agentes sin historial.
+      if (agent.fitnessScore < 0.5) continue;
+      if (agent.totalTrades < 3) continue;
+
+      // Cooldown: no más de 1 orden por agente cada 10 segundos
+      const now = Date.now();
+      const lastOrder = lastOrderTime.get(agent.id) ?? 0;
+      if (now - lastOrder < ORDER_COOLDOWN_MS) continue;
+      lastOrderTime.set(agent.id, now);
 
       const symbol = agentAlpacaSymbol.get(agent.id) ?? primarySymbol;
 
