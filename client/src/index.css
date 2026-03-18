@@ -1,0 +1,135 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark terminal aesthetic — inspired by quant trading terminals */
+    --background: 220 13% 6%;
+    --foreground: 210 20% 88%;
+    --card: 220 13% 9%;
+    --card-foreground: 210 20% 88%;
+    --popover: 220 13% 9%;
+    --popover-foreground: 210 20% 88%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 220 13% 6%;
+    --secondary: 220 13% 14%;
+    --secondary-foreground: 210 20% 75%;
+    --muted: 220 13% 14%;
+    --muted-foreground: 210 10% 50%;
+    --accent: 220 13% 16%;
+    --accent-foreground: 210 20% 88%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 98%;
+    --border: 220 13% 16%;
+    --input: 220 13% 14%;
+    --ring: 142 71% 45%;
+    --radius: 0.4rem;
+
+    /* Custom semantic colors */
+    --color-profit: 142 71% 45%;
+    --color-loss: 0 72% 51%;
+    --color-neutral: 210 10% 50%;
+    --color-warning: 38 92% 50%;
+    --color-alive: 142 71% 45%;
+    --color-dead: 0 72% 51%;
+    --color-reproducing: 280 71% 65%;
+    --color-math: 207 90% 54%;
+    --color-physics: 280 71% 65%;
+    --color-chemistry: 38 92% 50%;
+
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --font-sans: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Force dark mode always for this trading terminal */
+  .dark, html {
+    --background: 220 13% 6%;
+    --foreground: 210 20% 88%;
+    --card: 220 13% 9%;
+    --card-foreground: 210 20% 88%;
+    --popover: 220 13% 9%;
+    --popover-foreground: 210 20% 88%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 220 13% 6%;
+    --secondary: 220 13% 14%;
+    --secondary-foreground: 210 20% 75%;
+    --muted: 220 13% 14%;
+    --muted-foreground: 210 10% 50%;
+    --accent: 220 13% 16%;
+    --accent-foreground: 210 20% 88%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 98%;
+    --border: 220 13% 16%;
+    --input: 220 13% 14%;
+    --ring: 142 71% 45%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html, body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .font-mono {
+    font-family: var(--font-mono) !important;
+  }
+}
+
+@layer utilities {
+  .text-profit { color: hsl(var(--color-profit)); }
+  .text-loss { color: hsl(var(--color-loss)); }
+  .text-neutral { color: hsl(var(--color-neutral)); }
+  .text-warning-custom { color: hsl(var(--color-warning)); }
+  .bg-profit\/10 { background: hsl(var(--color-profit) / 0.1); }
+  .bg-loss\/10 { background: hsl(var(--color-loss) / 0.1); }
+
+  .border-profit { border-color: hsl(var(--color-profit)); }
+  .border-loss { border-color: hsl(var(--color-loss)); }
+
+  .scanline {
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+  }
+
+  .glow-green {
+    box-shadow: 0 0 12px hsl(var(--color-profit) / 0.3);
+  }
+  .glow-red {
+    box-shadow: 0 0 12px hsl(var(--color-loss) / 0.3);
+  }
+  .glow-blue {
+    box-shadow: 0 0 12px hsl(var(--color-math) / 0.3);
+  }
+
+  .terminal-border {
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: hsl(var(--card));
+  }
+
+  /* Animated pulse for alive agents */
+  @keyframes pulse-green {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(var(--color-profit) / 0.4); }
+    50% { box-shadow: 0 0 0 4px hsl(var(--color-profit) / 0); }
+  }
+  .pulse-alive { animation: pulse-green 2s infinite; }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: hsl(var(--muted)); }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+}
