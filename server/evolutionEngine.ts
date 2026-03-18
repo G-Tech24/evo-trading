@@ -53,8 +53,15 @@ import {
 import {
   computeMultiObjectiveFitness, computeParetoRanks, assignNiches,
   computeSharedFitness, selectMate, selectCrossoverType, performCrossover,
-  computeAdaptiveMutationRate, getReproductiveStats, phenotype
+  computeAdaptiveMutationRate, getReproductiveStats, phenotype,
+  extractReproductiveState, restoreReproductiveState
 } from "./reproductiveSystem.js";
+import {
+  extractDigestiveState, restoreDigestiveState
+} from "./digestiveSystem.js";
+import {
+  registerExtractor, registerRestorer, type CheckpointData
+} from "./persistenceManager.js";
 
 // Exportar stats de los sistemas fisiológicos
 export { getTrainingStats, getRecentSessions };
@@ -348,6 +355,35 @@ function extractSensorySignals(
 // Los CfC brains viven en memoria (no en DB) por eficiencia.
 // Se persisten en el agente como JSON en campo `brainState`.
 const agentBrains = new Map<string, CfCBrain>();
+
+// ─── Persistence registration ─────────────────────────────────────────────────
+// Registrar extractor de pesos CfC y estado reproductivo/digestivo
+registerExtractor(() => {
+  const brains: Record<string, any> = {};
+  agentBrains.forEach((brain, id) => {
+    brains[id] = serializeBrain(brain);
+  });
+  return {
+    brains,
+    ...extractReproductiveState(),
+    ...extractDigestiveState(),
+  };
+});
+
+// Restaurar pesos CfC y sistemas bio al cargar checkpoint
+registerRestorer((data: CheckpointData) => {
+  // Restaurar brains CfC
+  if (data.brains) {
+    agentBrains.clear();
+    Object.entries(data.brains).forEach(([id, brain]) => {
+      agentBrains.set(id, deserializeBrain(brain));
+    });
+    console.log(`[Engine] Restaurados ${Object.keys(data.brains).length} cerebros CfC`);
+  }
+  // Restaurar sistemas digestivo y reproductivo
+  restoreDigestiveState(data);
+  restoreReproductiveState(data);
+});
 
 function getBrain(agent: Agent): CfCBrain {
   if (agentBrains.has(agent.id)) {
@@ -1024,7 +1060,7 @@ export async function runTick() {
   if (tickCount2 > 0 && tickCount2 % 20 === 0) {
     for (const ag of allAgents) {
       const agBrain = getBrain(ag);
-      consolidateMemory(ag.id, agBrain.W_f, agBrain.W_tau);
+      consolidateMemory(ag.id, agBrain.W_f, agBrain.W_tau, ag.fitnessScore);
     }
   }
 

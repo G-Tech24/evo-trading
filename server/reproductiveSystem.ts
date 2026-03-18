@@ -592,3 +592,46 @@ export function registerReproductionEvent(event: ReproductionEvent): void {
     recentReproductionEvents.shift();
   }
 }
+
+// ─── Persistence hooks ─────────────────────────────────────────────────────────
+
+/**
+ * Extrae estado del sistema reproductivo para checkpoint.
+ */
+export function extractReproductiveState(): {
+  agentMoFitness: Record<string, any>;
+  agentOutcomeHistory: Record<string, number[]>;
+} {
+  const moObj: Record<string, any> = {};
+  agentMoFitness.forEach((v, k) => { moObj[k] = v; });
+
+  const histObj: Record<string, number[]> = {};
+  agentOutcomeHistory.forEach((v, k) => { histObj[k] = v; });
+
+  return {
+    agentMoFitness: moObj,
+    agentOutcomeHistory: histObj,
+  };
+}
+
+/**
+ * Restaura el estado del sistema reproductivo desde un checkpoint.
+ */
+export function restoreReproductiveState(data: {
+  agentMoFitness?: Record<string, any>;
+  agentOutcomeHistory?: Record<string, number[]>;
+}): void {
+  if (data.agentMoFitness) {
+    agentMoFitness.clear();
+    Object.entries(data.agentMoFitness).forEach(([k, v]) => {
+      agentMoFitness.set(k, v as MultiObjectiveFitness);
+    });
+  }
+  if (data.agentOutcomeHistory) {
+    agentOutcomeHistory.clear();
+    Object.entries(data.agentOutcomeHistory).forEach(([k, v]) => {
+      agentOutcomeHistory.set(k, v);
+    });
+  }
+  console.log(`[Reproductive] Restaurado: ${Object.keys(data.agentMoFitness ?? {}).length} MO-fitness`);
+}

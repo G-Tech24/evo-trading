@@ -529,3 +529,69 @@ export function getAgentMemory(agentId: string): { stm: Episode[]; ltm: Episode[
     ltm: longTermMemory.get(agentId) ?? [],
   };
 }
+
+// ─── Persistence hooks ─────────────────────────────────────────────────────────
+
+/**
+ * Extrae todo el estado del sistema digestivo para checkpoint.
+ */
+export function extractDigestiveState(): {
+  episodeBuffers: Record<string, any[]>;
+  longTermMemory: Record<string, any[]>;
+  ewcProtections: Record<string, any>;
+  totalForgotten: number;
+  totalConsolidated: number;
+} {
+  const bufObj: Record<string, any[]> = {};
+  episodeBuffers.forEach((v, k) => { bufObj[k] = v; });
+
+  const ltmObj: Record<string, any[]> = {};
+  longTermMemory.forEach((v, k) => { ltmObj[k] = v; });
+
+  const ewcObj: Record<string, any> = {};
+  ewcProtections.forEach((v, k) => { ewcObj[k] = v; });
+
+  return {
+    episodeBuffers: bufObj,
+    longTermMemory: ltmObj,
+    ewcProtections: ewcObj,
+    totalForgotten,
+    totalConsolidated,
+  };
+}
+
+/**
+ * Restaura el estado del sistema digestivo desde un checkpoint.
+ */
+export function restoreDigestiveState(data: {
+  episodeBuffers?: Record<string, any[]>;
+  longTermMemory?: Record<string, any[]>;
+  ewcProtections?: Record<string, any>;
+  totalForgotten?: number;
+  totalConsolidated?: number;
+}): void {
+  if (data.episodeBuffers) {
+    episodeBuffers.clear();
+    Object.entries(data.episodeBuffers).forEach(([k, v]) => {
+      episodeBuffers.set(k, v);
+    });
+  }
+  if (data.longTermMemory) {
+    longTermMemory.clear();
+    Object.entries(data.longTermMemory).forEach(([k, v]) => {
+      longTermMemory.set(k, v);
+    });
+  }
+  if (data.ewcProtections) {
+    ewcProtections.clear();
+    Object.entries(data.ewcProtections).forEach(([k, v]) => {
+      ewcProtections.set(k, v);
+    });
+  }
+  if (data.totalForgotten !== undefined) totalForgotten = data.totalForgotten;
+  if (data.totalConsolidated !== undefined) totalConsolidated = data.totalConsolidated;
+
+  const agentCount = Object.keys(data.episodeBuffers ?? {}).length;
+  const epCount = Object.values(data.episodeBuffers ?? {}).reduce((s, v) => s + v.length, 0);
+  console.log(`[Digestive] Restaurado: ${agentCount} agentes, ${epCount} episodios STM`);
+}

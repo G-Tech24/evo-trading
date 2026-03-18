@@ -130,7 +130,7 @@ class MemStorage implements IStorage {
   }
 
   addTrade(data: InsertTrade): Trade {
-    const trade: Trade = { ...data, id: this.tradeIdCounter++, timestamp: new Date() };
+    const trade = { ...data, pnl: data.pnl ?? 0, rationale: data.rationale ?? null, id: this.tradeIdCounter++, timestamp: new Date() } as Trade;
     this.trades.push(trade);
     return trade;
   }
@@ -140,7 +140,11 @@ class MemStorage implements IStorage {
   }
 
   addGeneration(data: InsertGeneration): Generation {
-    const gen: Generation = { ...data, id: this.genIdCounter++, timestamp: new Date() };
+    const gen = {
+      agentsBorn: 0, agentsDied: 0, agentsAlive: 0,
+      bestFitness: 0, avgFitness: 0, bestAgentId: null, dominantStrategy: null,
+      ...data, id: this.genIdCounter++, timestamp: new Date()
+    } as Generation;
     this.generations.push(gen);
     return gen;
   }
@@ -208,3 +212,64 @@ class MemStorage implements IStorage {
 }
 
 export const storage = new MemStorage();
+
+/**
+ * Restaura el storage desde datos de checkpoint.
+ * Inyecta directamente sin pasar por los constructores tipados.
+ */
+export function restoreStorageFromCheckpoint(data: {
+  agents?: any[];
+  recentTrades?: any[];
+  generations?: any[];
+  recentEvents?: any[];
+}): void {
+  const mem = storage as any;
+
+  if (data.agents?.length) {
+    mem.agents = new Map<string, any>();
+    for (const a of data.agents) {
+      const agent = {
+        ...a,
+        createdAt: new Date(a.createdAt),
+        updatedAt: new Date(a.updatedAt),
+        diedAt: a.diedAt ? new Date(a.diedAt) : null,
+      };
+      mem.agents.set(agent.id, agent);
+    }
+  }
+
+  if (data.recentTrades?.length) {
+    mem.trades = data.recentTrades.map((t: any) => ({
+      ...t,
+      pnl: t.pnl ?? 0,
+      rationale: t.rationale ?? null,
+      timestamp: new Date(t.timestamp),
+    }));
+    mem.tradeIdCounter = mem.trades.length + 1;
+  }
+
+  if (data.generations?.length) {
+    mem.generations = data.generations.map((g: any) => ({
+      agentsBorn: 0, agentsDied: 0, agentsAlive: 0,
+      bestFitness: 0, avgFitness: 0, bestAgentId: null, dominantStrategy: null,
+      ...g,
+      timestamp: new Date(g.timestamp),
+    }));
+    mem.genIdCounter = mem.generations.length + 1;
+  }
+
+  if (data.recentEvents?.length) {
+    mem.events = data.recentEvents.map((e: any) => ({
+      ...e,
+      data: e.data ?? null,
+      agentId: e.agentId ?? null,
+      timestamp: new Date(e.timestamp),
+    }));
+    mem.eventIdCounter = mem.events.length + 1;
+  }
+
+  const alive = (storage as any).agents
+    ? [...(storage as any).agents.values()].filter((a: any) => a.status === "alive").length
+    : 0;
+  console.log(`[Storage] Restaurado: ${data.agents?.length ?? 0} agentes (${alive} vivos), ${data.recentTrades?.length ?? 0} trades`);
+}

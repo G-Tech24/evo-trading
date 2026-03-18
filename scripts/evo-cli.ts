@@ -29,6 +29,12 @@ import {
   spawnInitialPopulation,
 } from "../server/evolutionEngine.js";
 import {
+  loadCheckpoint,
+  saveCheckpoint,
+  startAutoCheckpoint,
+  getPersistenceStats,
+} from "../server/persistenceManager.js";
+import {
   initAlpacaBroker,
   getAccountInfo,
   getBrokerStats,
@@ -103,6 +109,17 @@ async function bootstrap() {
   console.clear();
   printBanner();
 
+  // 0. Cargar checkpoint previo (si existe)
+  const restored = await loadCheckpoint();
+  if (restored) {
+    const pStats = getPersistenceStats();
+    const agoMin = pStats.lastSaveAgoSec ? Math.round(pStats.lastSaveAgoSec / 60) : "?";
+    console.log(`[Persistence] Estado restaurado desde checkpoint (${agoMin}min atrás, ${(pStats.fileSizeBytes / 1024).toFixed(0)}KB)`);
+  }
+
+  // Arrancar auto-checkpoint (guarda cada 60s + en SIGINT/SIGTERM)
+  startAutoCheckpoint();
+
   // 1. Inicializar Alpaca
   const alpacaOk = initAlpacaBroker();
 
@@ -151,10 +168,12 @@ async function bootstrap() {
     logEvent(`{grey-fg}Configura ALPACA_KEY_ID y ALPACA_SECRET_KEY en .env para activar el broker real{/grey-fg}`);
   }
 
-  // 2. Crear agentes iniciales si no hay ninguno
+  // 2. Crear agentes iniciales solo si no hay checkpoint (primera vez)
   if (storage.getAllAgents().length === 0) {
     spawnInitialPopulation(INITIAL_AGENTS);
     logEvent(`{green-fg}Creados ${INITIAL_AGENTS} agentes evolutivos (CfC+GAT+NCP){/green-fg}`);
+  } else {
+    logEvent(`{cyan-fg}Checkpoint restaurado{/cyan-fg}: ${storage.getAliveAgents().length} agentes vivos, ${storage.getDeadAgents().length} muertos`);
   }
 
   // 3. Arrancar UI o modo texto
