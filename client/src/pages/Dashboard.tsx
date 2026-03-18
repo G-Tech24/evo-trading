@@ -18,6 +18,7 @@ import { PriceChart } from "@/components/PriceChart";
 import { AgentCard } from "@/components/AgentCard";
 import { EventLog } from "@/components/EventLog";
 import { GenerationsChart } from "@/components/GenerationsChart";
+import { VitalSignsPanel } from "@/components/VitalSignsPanel";
 
 const STRATEGY_LABELS: Record<string, string> = {
   brownian_motion: "Movimiento Browniano",
@@ -194,15 +195,24 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right: event log */}
-        <div className="w-64 flex-shrink-0 border-l border-border flex flex-col">
-          <div className="px-3 py-2 border-b border-border flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-muted-foreground"/>
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Log de Eventos
-            </span>
-          </div>
-          <EventLog events={events} />
+        {/* Right: vitals + event log */}
+        <div className="w-72 flex-shrink-0 border-l border-border flex flex-col overflow-hidden">
+          <Tabs defaultValue="vitals" className="flex flex-col h-full">
+            <TabsList className="mx-2 mt-2 flex-shrink-0 bg-muted/50 h-7">
+              <TabsTrigger value="vitals" className="text-[10px]">Signos Vitales</TabsTrigger>
+              <TabsTrigger value="events" className="text-[10px]">Eventos</TabsTrigger>
+            </TabsList>
+            <div className="flex-1 overflow-hidden">
+              <TabsContent value="vitals" className="h-full m-0 overflow-auto">
+                <div className="p-2">
+                  <VitalSignsPanel />
+                </div>
+              </TabsContent>
+              <TabsContent value="events" className="h-full m-0">
+                <EventLog events={events} />
+              </TabsContent>
+            </div>
+          </Tabs>
         </div>
       </div>
     </div>

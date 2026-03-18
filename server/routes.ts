@@ -2,7 +2,12 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage.js";
-import { startSimulation, stopSimulation, isRunning, spawnInitialPopulation, buildGraph } from "./evolutionEngine.js";
+import {
+  startSimulation, stopSimulation, isRunning, spawnInitialPopulation, buildGraph,
+  getTrainingStats, getRecentSessions,
+  getCirculatoryStats, getCirculatoryState,
+  getRespiratorySystemStats, getAgentRespiratoryProfile
+} from "./evolutionEngine.js";
 import { ALL_CONCEPTS, CONCEPT_INDEX, CURRICULUM_STATS, selectRelevantConcepts } from "./knowledgeBase.js";
 import { ALL_PROBLEMS, PROBLEM_BANK_STATS, selectProblemsForAgent, computeWisdomVector } from "./problemBank.js";
 
@@ -234,6 +239,63 @@ export function registerRoutes(httpServer: Server, app: Express) {
       dominantDomain: wisdom[0] > wisdom[1] && wisdom[0] > wisdom[2] ? "math"
                     : wisdom[1] > wisdom[2] ? "physics" : "chemistry"
     });
+  });
+
+  // ── TRAINING ENGINE API ────────────────────────────────────────────────────────────────────
+
+  // GET training stats globales
+  app.get("/api/training/stats", (_req, res) => {
+    res.json(getTrainingStats());
+  });
+
+  // GET sesiones de entrenamiento recientes
+  app.get("/api/training/sessions", (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 20;
+    const sessions = getRecentSessions(limit).map(s => ({
+      sessionId: s.sessionId,
+      agentId: s.agentId,
+      phase: s.phase,
+      stressLevel: s.stressLevel,
+      generalizationScore: s.generalizationScore,
+      wisdomGain: s.wisdomGain,
+      problemCount: s.problems.length,
+      passRate: s.outcomes.filter(o => o.passed).length / Math.max(1, s.outcomes.length),
+      dominantDomain: s.problems[0]?.domain ?? "unknown",
+      startedAt: s.startedAt,
+    }));
+    res.json(sessions);
+  });
+
+  // ── CIRCULATORY SYSTEM API ──────────────────────────────────────────────────────────────────
+
+  // GET estado del sistema circulatorio
+  app.get("/api/circulatory/stats", (_req, res) => {
+    res.json(getCirculatoryStats());
+  });
+
+  // GET paquetes de sangre activos
+  app.get("/api/circulatory/packets", (_req, res) => {
+    const state = getCirculatoryState();
+    res.json({
+      heartRate: state.heartRate,
+      bloodPressure: state.bloodPressure,
+      oxygenSaturation: state.oxygenSaturation,
+      packets: state.activePackets.slice(-30),
+    });
+  });
+
+  // ── RESPIRATORY SYSTEM API ──────────────────────────────────────────────────────────────────
+
+  // GET estado del sistema respiratorio global
+  app.get("/api/respiratory/stats", (_req, res) => {
+    res.json(getRespiratorySystemStats());
+  });
+
+  // GET perfil respiratorio de un agente específico
+  app.get("/api/respiratory/agent/:id", (req, res) => {
+    const profile = getAgentRespiratoryProfile(req.params.id);
+    if (!profile) return res.status(404).json({ error: "Perfil no encontrado" });
+    res.json(profile);
   });
 
   // Auto-start simulation on boot

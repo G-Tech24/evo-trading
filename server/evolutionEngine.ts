@@ -31,6 +31,22 @@ import { storage } from "./storage.js";
 import type { Agent } from "@shared/schema";
 import { extractKnowledgeFeatures, selectRelevantConcepts, CURRICULUM_STATS } from "./knowledgeBase.js";
 import { selectProblemsForAgent, computeWisdomVector, PROBLEM_BANK_STATS } from "./problemBank.js";
+import {
+  generateTrainingSession, registerSession, getTrainingStats, getRecentSessions,
+  selectTrainingPhase
+} from "./trainingEngine.js";
+import {
+  heartbeat, capillaryExchange, venousReturn, processPackets,
+  updateAgentProfile, getCirculatoryStats, getCirculatoryState
+} from "./circulatorySystem.js";
+import {
+  breathe, analyzeMarketAirQuality, getRespiratorySystemStats, getAgentRespiratoryProfile
+} from "./respiratorySystem.js";
+
+// Exportar stats de los sistemas fisiológicos
+export { getTrainingStats, getRecentSessions };
+export { getCirculatoryStats, getCirculatoryState };
+export { getRespiratorySystemStats, getAgentRespiratoryProfile };
 
 // ─── Constantes del sistema nervioso ─────────────────────────────────────────
 const CFC_HIDDEN = 24;       // Neuronas CfC por agente (compacto pero expresivo)
@@ -840,8 +856,75 @@ export async function runTick() {
     }
   }
 
-  // Actualizar topología dinámica cada 15 ticks
+  // ── SISTEMA CIRCULATORIO: latido del corazón ──────────────────────────────
+  const allAliveForCirc = storage.getAliveAgents();
+  const bloodPackets = heartbeat(
+    allAliveForCirc.map(a => ({
+      id: a.id, fitnessScore: a.fitnessScore, capital: a.capital,
+      mathWeight: a.mathWeight, physicsWeight: a.physicsWeight,
+      chemistryWeight: a.chemistryWeight, status: a.status,
+      generation: a.generation, winRate: a.winRate,
+    })),
+    storage.getRecentTicks(1000).length,
+    marketVolatility,
+    price
+  );
+
+  // Procesar paquetes circulatorios y aplicar efectos
+  const { effects } = processPackets(storage.getRecentTicks(1000).length);
+  for (const eff of effects) {
+    const ag = storage.getAgent(eff.agentId);
+    if (!ag || ag.status !== "alive") continue;
+    const newCap = Math.max(0, ag.capital + eff.capitalDelta);
+    const newMath = Math.min(0.9, ag.mathWeight + eff.knowledgeDelta[0]);
+    const newPhys = Math.min(0.9, ag.physicsWeight + eff.knowledgeDelta[1]);
+    const newChem = Math.min(0.9, ag.chemistryWeight + eff.knowledgeDelta[2]);
+    if (eff.capitalDelta !== 0 || eff.knowledgeDelta.some(k => k !== 0)) {
+      storage.updateAgent(eff.agentId, {
+        capital: newCap,
+        mathWeight: newMath,
+        physicsWeight: newPhys,
+        chemistryWeight: newChem,
+      });
+    }
+    updateAgentProfile(eff.agentId, ag.fitnessScore, newCap);
+  }
+
+  // ── SISTEMA RESPIRATORIO + ENTRENAMIENTO: cada 5 ticks ────────────────────
   const tickCount = storage.getRecentTicks(1000).length;
+  if (tickCount % 5 === 0) {
+    const airQuality = analyzeMarketAirQuality(priceHistory, marketVolatility, volume);
+    const agentsForTraining = storage.getAliveAgents();
+    for (const agent of agentsForTraining) {
+      // Respiración
+      const respProfile = breathe(
+        agent.id, agent.fitnessScore, agent.capital,
+        Math.abs(agent.maxDrawdown), agent.winRate, agent.totalTrades,
+        agent.generation, airQuality, tickCount
+      );
+
+      // Entrenamiento adversarial (cada 10 ticks por agente)
+      if (tickCount % 10 === 0) {
+        const session = generateTrainingSession(
+          agent.id, agent.mathWeight, agent.physicsWeight, agent.chemistryWeight,
+          agent.fitnessScore, agent.generation, marketVolatility, tickCount
+        );
+        registerSession(session);
+
+        // Los resultados del entrenamiento ajustan levemente los pesos del genoma
+        const [mGain, pGain, cGain] = session.wisdomGain;
+        const fitnessBoost = session.generalizationScore * respProfile.fitnessModifier * 0.001;
+        storage.updateAgent(agent.id, {
+          mathWeight: Math.min(0.9, agent.mathWeight + mGain * respProfile.signalSensitivity),
+          physicsWeight: Math.min(0.9, agent.physicsWeight + pGain * respProfile.signalSensitivity),
+          chemistryWeight: Math.min(0.9, agent.chemistryWeight + cGain * respProfile.signalSensitivity),
+          fitnessScore: Math.min(2, agent.fitnessScore + fitnessBoost),
+        });
+      }
+    }
+  }
+
+  // Actualizar topología dinámica cada 15 ticks
   if (tickCount > 0 && tickCount % 15 === 0) {
     buildDynamicGraph();
   }
@@ -865,11 +948,28 @@ function killAgent(agentId: string, reason: string) {
   // Eliminar cerebro de la memoria
   agentBrains.delete(agentId);
 
+  // SISTEMA CIRCULATORIO: retorno venoso — capital reciclado a los vivos
+  const aliveForVein = storage.getAliveAgents();
+  const veinPackets = venousReturn(
+    agentId, agent.capital,
+    aliveForVein.map(a => ({ id: a.id, fitnessScore: a.fitnessScore, capital: a.capital })),
+    storage.getRecentTicks(1000).length
+  );
+  // Aplicar retorno venoso directamente
+  for (const pkt of veinPackets) {
+    const recv = storage.getAgent(pkt.destination);
+    if (recv && recv.status === "alive") {
+      storage.updateAgent(pkt.destination, {
+        capital: recv.capital + (pkt.payload.capitalDelta ?? 0)
+      });
+    }
+  }
+
   storage.addEvent({
     type: "death",
     agentId,
-    message: `☠ ${agent.name} eliminado — ${reason} | PnL: ${agent.pnlPercent.toFixed(1)}%`,
-    data: { reason, pnl: agent.pnl, fitness: agent.fitnessScore },
+    message: `☠ ${agent.name} eliminado — ${reason} | PnL: ${agent.pnlPercent.toFixed(1)}% | 🩸 ${veinPackets.length} retornos venosos`,
+    data: { reason, pnl: agent.pnl, fitness: agent.fitnessScore, venousReturn: veinPackets.length },
   });
   buildDynamicGraph();
 }
