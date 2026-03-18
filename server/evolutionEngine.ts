@@ -911,15 +911,52 @@ export async function runTick() {
         );
         registerSession(session);
 
-        // Los resultados del entrenamiento ajustan levemente los pesos del genoma
+        // ── FIX #1: Acoplamiento conocimiento → señal ──────────────────────
+        // wisdomGain base (0-0.05) amplificado x10 para que sea neurológicamente
+        // significativo. La plasticidad sináptica es proporcional al estrés del
+        // entrenamiento y al régimen respiratorio (fitnessModifier).
         const [mGain, pGain, cGain] = session.wisdomGain;
-        const fitnessBoost = session.generalizationScore * respProfile.fitnessModifier * 0.001;
+        const stressAmplifier = 1.0 + session.stressLevel * 2.0; // hasta 3× en chaos
+        const plasticityRate = respProfile.signalSensitivity * stressAmplifier;
+        const newMath = clamp(agent.mathWeight + mGain * plasticityRate * 0.5, 0.05, 0.95);
+        const newPhys = clamp(agent.physicsWeight + pGain * plasticityRate * 0.5, 0.05, 0.95);
+        const newChem = clamp(agent.chemistryWeight + cGain * plasticityRate * 0.5, 0.05, 0.95);
+
+        // ── FIX #5: Plasticidad sináptica en los pesos CfC ─────────────────
+        // El wisdomGain modifica directamente W_f (backbone) y W_tau (timescale)
+        // del cerebro CfC del agente — conocimiento → arquitectura neuronal.
+        const brain = getBrain(agent);
+        const domainBoosts = [mGain, pGain, cGain]; // Math, Physics, Chem
+        const lr = plasticityRate * 0.01; // learning rate sináptico
+        // Cada dominio refuerza las filas de W_f correspondientes a sus neuronas sensoriales
+        // (3 neuronas por dominio: 0-2 math, 3-5 physics, 6-8 chemistry)
+        for (let d = 0; d < 3; d++) {
+          const boost = domainBoosts[d] * lr;
+          if (boost <= 0) continue;
+          const sensorStart = d * 3; // índice de neurona sensorial del dominio
+          for (let row = 0; row < brain.W_f.length; row++) {
+            for (let col = sensorStart; col < sensorStart + 3; col++) {
+              if (col < brain.W_f[row].length) {
+                // Refuerzo Hebbiano: si la señal es fuerte, el peso crece
+                brain.W_f[row][col] = clamp(
+                  brain.W_f[row][col] * (1 + boost),
+                  -2, 2
+                );
+              }
+            }
+          }
+        }
+        // Fitness boost proporcional a generalización y fase de entrenamiento
+        const fitnessBoost = session.generalizationScore * respProfile.fitnessModifier
+          * stressAmplifier * 0.005; // antes: 0.001
+
         storage.updateAgent(agent.id, {
-          mathWeight: Math.min(0.9, agent.mathWeight + mGain * respProfile.signalSensitivity),
-          physicsWeight: Math.min(0.9, agent.physicsWeight + pGain * respProfile.signalSensitivity),
-          chemistryWeight: Math.min(0.9, agent.chemistryWeight + cGain * respProfile.signalSensitivity),
+          mathWeight: newMath,
+          physicsWeight: newPhys,
+          chemistryWeight: newChem,
           fitnessScore: Math.min(2, agent.fitnessScore + fitnessBoost),
         });
+        saveBrain(agent.id, brain);
       }
     }
   }
@@ -983,16 +1020,32 @@ function runSelectionCycle() {
   const currentGen = storage.getCurrentGeneration();
   const newGen = currentGen + 1;
 
-  const reproducers = sorted.slice(0, Math.max(1, Math.floor(sorted.length * 0.25)));
-  const losers = sorted
-    .slice(-Math.max(1, Math.floor(sorted.length * 0.25)))
-    .filter(a => a.fitnessScore < 0 || a.pnlPercent < -15);
+  // ── FIX #2 + #4: Presión de selección adaptativa ────────────────────────
+  // Generaciones tempranas: selección suave (los agentes aún aprenden).
+  // Generaciones maduras: darwinismo severo — solo los mejores sobreviven.
+  const genPressure = currentGen < 5 ? 0.20 : currentGen < 15 ? 0.30 : 0.35;
+  const eliteRatio  = currentGen < 5 ? 0.30 : currentGen < 15 ? 0.25 : 0.20;
+
+  const reproducers = sorted.slice(0, Math.max(1, Math.floor(sorted.length * eliteRatio)));
+
+  // Losers: fondo de la tabla. Ya no necesitan fitness negativo para morir.
+  // Condición: debe haber operado (>= 5 trades) Y ser mediocre.
+  // Agentes con < 5 trades reciben gracia — aún están calibrando.
+  const candidateLosers = sorted.slice(-Math.max(1, Math.floor(sorted.length * genPressure)));
+  const losers = candidateLosers.filter(a =>
+    a.totalTrades >= 5 &&
+    (a.fitnessScore < 0.1 || a.pnlPercent < -10 || a.winRate < 0.25)
+  );
 
   losers.forEach(agent => {
     killAgent(agent.id, "Eliminado por selección natural");
   });
 
-  const numOffspring = Math.min(reproducers.length, 4);
+  // Reproducción: reemplaza los muertos + 20% extra para mantener presión
+  const numOffspring = Math.min(
+    Math.max(2, Math.floor((losers.length + 1) * 1.2)),
+    8 // techo de 8 nacimientos por ciclo
+  );
   for (let i = 0; i < numOffspring; i++) {
     const parent1 = reproducers[i % reproducers.length];
     const parent2 = reproducers[(i + 1) % reproducers.length];
@@ -1100,20 +1153,52 @@ export function startSimulation() {
     }
     const alive = storage.getAliveAgents();
     if (alive.length < 4) {
+      // ── FIX #3: Respawn inteligente ────────────────────────────────────────
+      // Si hay supervivientes, los nuevos agentes heredan su cerebro CfC
+      // (mutado) para no perder el conocimiento acumulado evolutivamente.
+      // Si no hay supervivientes, arrancan desde cero.
       const gen = storage.getCurrentGeneration() + 1;
+      const survivors = storage.getAllAgents()
+        .filter(a => a.status === "dead")
+        .sort((a, b) => b.fitnessScore - a.fitnessScore)
+        .slice(0, 3); // los 3 mejores muertes recientes
+
       for (let i = 0; i < 6; i++) {
         const strategy = STRATEGIES[Math.floor(rand(0, STRATEGIES.length))];
         const id = generateId();
+
+        // Heredar del mejor difunto si existe
+        const donorAgent = survivors[i % Math.max(1, survivors.length)];
+        const donorBrain = donorAgent
+          ? (agentBrains.get(donorAgent.id) ?? initCfCBrain())
+          : initCfCBrain();
+
+        // Mutar el cerebro heredado para mantener diversidad
+        const newBrain = crossoverBrains(donorBrain, initCfCBrain(), 0.2);
+
         storage.createAgent({
           id, name: generateName(gen, i + 20), generation: gen, status: "alive",
-          parentIds: [], strategy,
-          mathWeight: rand(0.1, 0.8), physicsWeight: rand(0.1, 0.5), chemistryWeight: rand(0.1, 0.5),
-          riskTolerance: rand(0.1, 0.9), lookbackPeriod: Math.floor(rand(5, 30)),
-          entryThreshold: rand(0.005, 0.05), exitThreshold: rand(0.004, 0.04),
-          positionSizing: rand(0.05, 0.25), momentumBias: rand(-1, 1), volatilityFilter: rand(0.2, 0.8),
+          parentIds: donorAgent ? [donorAgent.id] : [],
+          strategy,
+          mathWeight: donorAgent
+            ? clamp(donorAgent.mathWeight + rand(-0.1, 0.1), 0.1, 0.8)
+            : rand(0.1, 0.8),
+          physicsWeight: donorAgent
+            ? clamp(donorAgent.physicsWeight + rand(-0.1, 0.1), 0.1, 0.5)
+            : rand(0.1, 0.5),
+          chemistryWeight: donorAgent
+            ? clamp(donorAgent.chemistryWeight + rand(-0.1, 0.1), 0.1, 0.5)
+            : rand(0.1, 0.5),
+          riskTolerance: rand(0.1, 0.9),
+          lookbackPeriod: Math.floor(rand(5, 30)),
+          entryThreshold: rand(0.005, 0.05),
+          exitThreshold: rand(0.004, 0.04),
+          positionSizing: rand(0.05, 0.25),
+          momentumBias: rand(-1, 1),
+          volatilityFilter: rand(0.2, 0.8),
           capital: 10000, initialCapital: 10000, neighbors: [],
         });
-        agentBrains.set(id, initCfCBrain());
+        agentBrains.set(id, newBrain);
       }
       buildDynamicGraph();
     }
