@@ -62,6 +62,7 @@ import {
 import {
   registerExtractor, registerRestorer, type CheckpointData
 } from "./persistenceManager.js";
+import { onNewPriceTick, getMedallionSignalForEvolution } from "./medallionFund.js";
 
 // Exportar stats de los sistemas fisiológicos
 export { getTrainingStats, getRecentSessions };
@@ -623,6 +624,7 @@ export async function fetchOrSimulatePrice(): Promise<{ price: number; volume: n
       const volume = parseFloat(data.quoteVolume) / 1e6;
       const change24h = parseFloat(data.priceChangePercent);
       currentPrice = price;
+      onNewPriceTick("BTC/USD", price); // Notify Medallion Fund
       return { price, volume, change24h };
     }
   } catch (_) {
@@ -637,6 +639,8 @@ export async function fetchOrSimulatePrice(): Promise<{ price: number; volume: n
   const shock = Math.random() < 0.02 ? z * 3 : z;
   currentPrice = currentPrice * Math.exp(drift + sigma * shock);
   currentPrice = clamp(currentPrice, 20000, 150000);
+
+  onNewPriceTick("BTC/USD", currentPrice); // Notify Medallion Fund
 
   const volume = rand(0.5, 5);
   const change24h = rand(-8, 8);
@@ -726,6 +730,14 @@ function computeSignalV2(
 
   // Momentum bias (gen heredado): ligeramente sesgar señal
   finalSignal += agent.momentumBias * 0.05;
+
+  // Medallion Fund Political Intelligence Signal (15% blend)
+  // Los agentes con mayor mathWeight son más sensibles a señales políticas
+  const medallionSignal = getMedallionSignalForEvolution(agent.symbol ?? "BTC/USD");
+  if (medallionSignal && Math.abs(medallionSignal.bias) > 0.1) {
+    const politicalWeight = 0.10 + agent.mathWeight * 0.10; // 10-20% según gen
+    finalSignal = finalSignal * (1 - politicalWeight) + medallionSignal.bias * politicalWeight;
+  }
 
   return {
     signal: clamp(finalSignal, -1, 1),

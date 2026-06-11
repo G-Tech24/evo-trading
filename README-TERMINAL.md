@@ -1,4 +1,4 @@
-# EvoTrading — Guía de uso en terminal
+# EvoTrading + Medallion Fund — Guía de uso
 
 ## Requisitos
 
@@ -114,3 +114,115 @@ Broker: Alpaca Markets
 
 Los agentes con fitness > 0.3 ejecutan sus decisiones como órdenes reales en Alpaca.
 El tamaño de la orden se escala: `notional = (capital_ratio × MAX_NOTIONAL × positionSizing × 2)` clampeado entre `MIN_NOTIONAL` y `MAX_NOTIONAL`.
+
+---
+
+## Medallion Fund — Motor de Inteligencia Política Autónomo
+
+Inspirado en el **Medallion Fund de Renaissance Technologies** (Jim Simons, 1988 - presente, ~66% anualizado bruto).
+
+### Arquitectura del Medallion Fund
+
+```
+Fuentes de Inteligencia (29 feeds RSS sin API key)
+├── Política USA          — Reuters, AP, Politico, The Hill, Roll Call
+├── Política Internacional — BBC, Reuters World, Foreign Policy, CFR
+├── Banco Central          — Federal Reserve, ECB, BIS (máx. prioridad)
+├── Economía               — Reuters Business, CNBC, FT, WSJ
+├── Regulación             — SEC, CFTC (alerta regulatoria)
+├── Geopolítica            — Defense News, AP World, CFR
+├── Commodities            — Reuters Energy, Platts
+└── Social/Alt             — Reddit: r/worldnews, r/economics, r/investing, r/CryptoCurrency
+          │
+          ▼
+    Sentiment Engine (NLP sin ML externo)
+    ├── Léxico Financiero    — 40+ términos positivos/negativos, ponderados
+    ├── Léxico Político      — 46 términos con mapeo a activos/sectores
+    ├── Léxico Macro         — 28 términos económicos
+    ├── Reconocimiento NER   — Países, tickers, monedas, commodities, personas
+    └── Puntuación ponderada — Financial 50% + Political 35% + Macro 15%
+          │
+          ▼
+    Political Analyzer
+    ├── 10 tipos de eventos  — guerra, sanción, elección, banco central, etc.
+    ├── Decodificador CB     — Hawkish/Dovish de comunicados Fed/ECB/BOJ
+    ├── Registro geopolítico — 6 regiones con decaimiento temporal de riesgo
+    └── Mapeo activo/evento  — Qué comprar/vender ante cada evento político
+          │
+          ▼
+    Signal Engine — Modelo Multi-Factor
+    ├── Factor Político  (35%) — señales del Political Analyzer
+    ├── Factor Sentimiento (25%) — sentiment agregado de noticias
+    ├── Factor Macro     (20%) — entorno macro estimado
+    ├── Factor Técnico   (20%) — momentum + RSI simplificado
+    ├── Kelly Criterion  — sizing óptimo de posición (fracción conservadora 25%)
+    └── Confianza compuesta — consenso entre los 4 factores
+          │
+          ▼
+    Autonomous Execution
+    ├── Ciclo automático cada 15 min
+    ├── Stop-loss automático (3% default)
+    ├── Take-profit automático (6% default)
+    ├── Max 5 posiciones simultáneas
+    └── Max 15% del portfolio por posición
+          │
+          ▼
+    Integración con Motor Evolutivo
+    └── Señal política (10-20% blend) → influye en decisión de cada agente
+```
+
+### Variables de entorno adicionales (Medallion Fund)
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `MEDALLION_LIVE` | `false` | `true` = ejecutar trades reales vía Alpaca |
+
+### API REST del Medallion Fund
+
+| Endpoint | Descripción |
+|---|---|
+| `GET /api/medallion/summary` | Resumen del fondo (estado, performance, señales activas) |
+| `GET /api/medallion/intelligence` | Reporte completo de inteligencia política |
+| `GET /api/medallion/signals` | Señales de trading activas |
+| `GET /api/medallion/signal/:symbol` | Señal para un símbolo específico |
+| `GET /api/medallion/geopolitical` | Riesgos geopolíticos por región |
+| `GET /api/medallion/performance` | Métricas de performance del fondo |
+| `GET /api/medallion/news/stats` | Estadísticas del agregador de noticias |
+| `GET /api/medallion/config` | Configuración actual |
+| `PATCH /api/medallion/config` | Actualizar configuración |
+| `POST /api/medallion/start` | Iniciar el fondo |
+| `POST /api/medallion/stop` | Detener el fondo |
+| `POST /api/medallion/cycle` | Disparar ciclo manual de inteligencia |
+
+### Lógica de Inversión Política (ejemplos)
+
+| Evento Político | Activos Bullish | Activos Bearish | Duración señal |
+|---|---|---|---|
+| Guerra / Conflicto | GLD, OIL, BTC, defensa | SPY, EM | 72h |
+| Sanciones | GLD, OIL, BTC | activos del país sancionado | 168h |
+| Fed Dovish / Recorte | SPY, BTC, GLD | USD | 48h |
+| Fed Hawkish / Alza | USD, bonos cortos | SPY, BTC, GLD | 48h |
+| Guerra Comercial | GLD | tech, exportadores, SPY | 120h |
+| Gasto Fiscal | SPY, commodities, BTC | USD bonos largos | 96h |
+| Regulación Cripto | — | BTC, ETH, altcoins | 72h |
+| Golpe / Crisis Política | GLD, BTC, USD | activos locales | 48h |
+| Acuerdo de Paz | activos regionales | GLD (menor demanda safe haven) | 48h |
+
+### Modelo de Riesgo Geopolítico
+
+El sistema mantiene un registro en tiempo real de 6 regiones:
+- **Middle East** → afecta OIL, GLD, BTC
+- **Eastern Europe** → afecta OIL, GLD, gas natural, trigo
+- **Asia-Pacific** → afecta semiconductores, AAPL, TSLA, NVDA
+- **Latin America** → afecta cobre, OIL, agricultura
+- **Africa** → afecta GLD, OIL, cobalto, litio
+- **North Korea** → afecta GLD, BTC, acciones de defensa
+
+El riesgo decae exponencialmente si no hay nuevas noticias (90% cada 6 horas).
+
+### Fear & Greed Index
+
+Calculado continuamente de 0 (miedo extremo) a 100 (codicia extrema):
+- `> 70` → zona de codicia, considerar reducir exposición
+- `30-70` → zona neutral
+- `< 30` → zona de miedo, posible oportunidad contraria

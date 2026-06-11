@@ -13,6 +13,14 @@ import {
 } from "./evolutionEngine.js";
 import { ALL_CONCEPTS, CONCEPT_INDEX, CURRICULUM_STATS, selectRelevantConcepts } from "./knowledgeBase.js";
 import { ALL_PROBLEMS, PROBLEM_BANK_STATS, selectProblemsForAgent, computeWisdomVector } from "./problemBank.js";
+import {
+  startMedallionFund, stopMedallionFund, pauseMedallionFund, resumeMedallionFund,
+  getMedallionSummary, getMedallionState, getMedallionPerformance, getMedallionConfig,
+  updateMedallionConfig, triggerManualCycle, getMedallionSignalForEvolution,
+} from "./medallionFund.js";
+import { getAggregatorStats } from "./newsAggregator.js";
+import { getGeopoliticalRisks } from "./politicalAnalyzer.js";
+import { getActiveSignals, getSignalEngineStats } from "./signalEngine.js";
 
 // WebSocket clients set
 const wsClients = new Set<WebSocket>();
@@ -342,6 +350,129 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ message: "Nichos disponibles via /api/reproductive/stats" });
   });
 
+  // ── MEDALLION FUND API ──────────────────────────────────────────────────────
+
+  // GET resumen completo del Medallion Fund
+  app.get("/api/medallion/summary", (_req, res) => {
+    res.json(getMedallionSummary());
+  });
+
+  // GET estado completo del fondo (posiciones, señales, historial)
+  app.get("/api/medallion/state", (_req, res) => {
+    const state = getMedallionState();
+    res.json({
+      isRunning: state.isRunning,
+      isPaused: state.isPaused,
+      cycleCount: state.cycleCount,
+      positions: state.positions,
+      tradeHistory: state.tradeHistory.slice(-50),
+      activeSignals: state.activeSignals,
+      config: state.config,
+    });
+  });
+
+  // GET performance del fondo
+  app.get("/api/medallion/performance", (_req, res) => {
+    res.json(getMedallionPerformance());
+  });
+
+  // GET señales de trading activas
+  app.get("/api/medallion/signals", (_req, res) => {
+    res.json(getActiveSignals());
+  });
+
+  // GET señal para un símbolo específico (para integración con agentes evo)
+  app.get("/api/medallion/signal/:symbol", (req, res) => {
+    const signal = getMedallionSignalForEvolution(req.params.symbol);
+    if (!signal) return res.status(404).json({ message: "No active signal for this symbol" });
+    res.json(signal);
+  });
+
+  // GET inteligencia política (reporte completo)
+  app.get("/api/medallion/intelligence", (_req, res) => {
+    const state = getMedallionState();
+    res.json({
+      intelligenceReport: state.intelligenceReport,
+      sentimentSnapshot: state.sentimentSnapshot,
+      geopoliticalRisks: getGeopoliticalRisks(),
+      signalStats: getSignalEngineStats(),
+    });
+  });
+
+  // GET riesgos geopolíticos
+  app.get("/api/medallion/geopolitical", (_req, res) => {
+    res.json(getGeopoliticalRisks());
+  });
+
+  // GET estadísticas del agregador de noticias
+  app.get("/api/medallion/news/stats", (_req, res) => {
+    res.json(getAggregatorStats());
+  });
+
+  // GET configuración actual
+  app.get("/api/medallion/config", (_req, res) => {
+    res.json(getMedallionConfig());
+  });
+
+  // PATCH actualizar configuración
+  app.patch("/api/medallion/config", (req, res) => {
+    try {
+      updateMedallionConfig(req.body);
+      res.json({ success: true, config: getMedallionConfig() });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  // POST iniciar el Medallion Fund
+  app.post("/api/medallion/start", (req, res) => {
+    startMedallionFund(req.body);
+    res.json({ success: true, summary: getMedallionSummary() });
+  });
+
+  // POST detener el Medallion Fund
+  app.post("/api/medallion/stop", (_req, res) => {
+    stopMedallionFund();
+    res.json({ success: true });
+  });
+
+  // POST pausar
+  app.post("/api/medallion/pause", (_req, res) => {
+    pauseMedallionFund();
+    res.json({ success: true });
+  });
+
+  // POST reanudar
+  app.post("/api/medallion/resume", (_req, res) => {
+    resumeMedallionFund();
+    res.json({ success: true });
+  });
+
+  // POST disparar ciclo manual de inteligencia
+  app.post("/api/medallion/cycle", async (_req, res) => {
+    try {
+      const result = await triggerManualCycle();
+      res.json({
+        cycleId: result.cycleId,
+        duration: result.duration,
+        articlesProcessed: result.articlesProcessed,
+        signalsGenerated: result.signalsGenerated,
+        tradesExecuted: result.tradesExecuted,
+        errors: result.errors,
+        dominantTheme: result.intelligenceReport.dominantTheme,
+        tradingBias: result.intelligenceReport.tradingBias,
+        compositeRiskScore: result.intelligenceReport.compositeRiskScore,
+        sentiment: result.sentimentSnapshot.overall,
+        fearGreedIndex: result.sentimentSnapshot.fearGreedIndex,
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // Auto-start simulation on boot
   startSimulation();
+
+  // Auto-start Medallion Fund on boot
+  startMedallionFund();
 }
